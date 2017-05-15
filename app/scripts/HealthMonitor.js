@@ -1,72 +1,72 @@
 ﻿(function ($, _) {
-	'use strict';
+    'use strict';
 
-	function HealthMonitor($timeout, $http, endpoint, configService) {
-		var self = this,
-			config = configService.healthConfig(),
-			timer = null;
+    function HealthMonitor($timeout, $http, endpoint, configService) {
+        var self = this,
+            config = configService.healthConfig(),
+            timer = null;
 
-		this.isHealthy = true;
-		this.unhealthy = [];
-		this.healthy = [];
-		this.updateError = null;
+        function mapSection(section) {
+            return _(section).map(function (h, key) {
+                return { name: key, text: h };
+            }).value();
+        }
 
-		this.retry = function () {
-			updateStatus();
-		};
+        function updateStatus(callback) {
+            var healthUri = 'health';
+            if (endpoint) {
+                if (endpoint[endpoint.length - 1] === '/') {
+                    healthUri = endpoint + healthUri;
+                } else {
+                    healthUri = endpoint + '/' + healthUri;
+                }
+            }
 
-		this.updateInterval = function (interval) {
-			if (interval !== undefined) {
-				config.interval = interval;
-				configService.healthConfig(config);
-				updateStatus();
-			}
-			return config.interval;
-		};
+            $http.get(healthUri).success(function (data) {
+                callback(data);
+            }).error(function (data, status) {
+                if (status === 500 && _(data).isObject() && data.IsHealthy === false) {
+                    callback(data);
+                } else {
+                    self.updateError = 'Error reading Health Status data from ' + (endpoint || '') + '/health. Update stopped.';
+                }
+            });
+        }
 
-		function mapSection(section) {
-			return _(section).map(function (h, key) {
-				return { name: key, text: h };
-			}).value();
-		}
+        function update(status) {
+            self.updateError = null;
+            self.isHealthy = status.IsHealthy;
+            self.unhealthy = mapSection(status.Unhealthy);
+            self.healthy = mapSection(status.Healthy);
+            if (config.interval > 0) {
+                if (timer !== null) {
+                    $timeout.cancel(timer);
+                }
+                timer = $timeout(function () { updateStatus(update); }, config.interval);
+            }
+        }
 
-		function update(status) {
-			self.updateError = null;
-			self.isHealthy = status.IsHealthy;
-			self.unhealthy = mapSection(status.Unhealthy);
-			self.healthy = mapSection(status.Healthy);
-			if (config.interval > 0) {
-			    if (timer !== null) {
-			        $timeout.cancel(timer);
-			    }
-				timer = $timeout(updateStatus, config.interval);
-			}
-		}
+        this.isHealthy = true;
+        this.unhealthy = [];
+        this.healthy = [];
+        this.updateError = null;
 
-		function updateStatus() {
-		    var healthUri = 'health';
-		    if (endpoint) {
-		        if (endpoint[endpoint.length - 1] === '/') {
-		            healthUri = endpoint + healthUri;
-		        } else {
-		            healthUri = endpoint + '/' + healthUri;
-		        }
-		    }
+        this.retry = function () {
+            updateStatus(update);
+        };
 
-		    $http.get(healthUri).success(function (data) {
-				update(data);
-			}).error(function (data, status) {
-				if (status === 500 && _(data).isObject() && data.IsHealthy === false) {
-					update(data);
-				} else {
-					self.updateError = 'Error reading Health Status data from ' + (endpoint || '') + '/health. Update stopped.';
-				}
-			});
-		}
+        this.updateInterval = function (interval) {
+            if (interval !== undefined) {
+                config.interval = interval;
+                configService.healthConfig(config);
+                updateStatus(update);
+            }
+            return config.interval;
+        };
 
-		updateStatus();
-	}
+        updateStatus(update);
+    }
 
-	$.extend(true, this, { metrics: { HealthMonitor: HealthMonitor } });
+    $.extend(true, this, { metrics: { HealthMonitor: HealthMonitor } });
 
 }).call(this, this.jQuery, this._);

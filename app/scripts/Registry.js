@@ -18,13 +18,22 @@
 				{ name: 'Counters', data: counters },
 				{ name: 'Gauges', data: gauges },
 				{ name: 'Histograms', data: histograms }
-			];
+            ];
 
-		this.chartUpdated = function () {
-			saveChartState();
-		};
+        function initialSetup() {
+            if (config.chartState) {
+                _(config.chartState).each(function (s) {
+                    _(charts).where(function (c) {
+                        return c.name === s.name && c.unit === s.unit;
+                    }).each(function (c) {
+                        c.toggle(s.visible);
+                    });
+                });
+            }
+            initialized = true;
+        }
 
-		function saveChartState() {
+        function saveChartState() {
 			if (!initialized) {
 				return;
 			}
@@ -37,20 +46,65 @@
 				};
 			}).value();
 			configService.registryConfig(config);
-		}
+        }
 
-		function initialSetup() {
-		    if (config.chartState){
-				_(config.chartState).each(function (s) {
-					_(charts).where(function (c) {
-						return c.name === s.name && c.unit === s.unit;
-					}).each(function (c) {
-						c.toggle(s.visible);
-					});
-				});
-			}
-			initialized = true;
-		}
+        function updateMetrics(InstanceType, currentMetrics, newData, units) {
+            var existing = _(currentMetrics).map('name');
+            /* jshint unused:true */
+            _(newData).each(function (value, name) {
+                if (!_(existing).contains(name)) {
+                    var metric = new InstanceType(name, units[name], config.maxValues);
+                    currentMetrics.push(metric);
+                    _(metric.getCharts()).each(function (c) {
+                        charts.push(c);
+                        c.registry = self;
+                    });
+                }
+            });
+            _(currentMetrics).each(function (g) {
+                g.update(newData[g.name], self.lastUpdate);
+            });
+        }
+
+        function update(data) {
+            self.lastUpdate = moment(data.lastUpdate);
+
+            updateMetrics(metrics.Timer, timers, data.Timers, data.Units.Timers);
+            updateMetrics(metrics.Histogram, histograms, data.Histograms, data.Units.Histograms);
+            updateMetrics(metrics.Meter, meters, data.Meters, data.Units.Meters);
+            updateMetrics(metrics.SimpleMetric, counters, data.Counters, data.Units.Counters);
+            updateMetrics(metrics.SimpleMetric, gauges, data.Gauges, data.Units.Gauges);
+        }
+
+        function updateValues() {
+            var jsonUri = 'json';
+            if (endpoint) {
+                if (endpoint[endpoint.length - 1] === '/') {
+                    jsonUri = endpoint + jsonUri;
+                } else {
+                    jsonUri = endpoint + '/' + jsonUri;
+                }
+            }
+
+            $http.get(jsonUri).success(function (data) {
+                self.updateError = null;
+                update(data);
+                if (timer === null) {
+                    initialSetup();
+                } else {
+                    $timeout.cancel(timer);
+                }
+                if (config.interval > 0) {
+                    timer = $timeout(updateValues, config.interval);
+                }
+            }).error(function () {
+                self.updateError = 'Error reading metric data from ' + (endpoint || '') + '/json. Update stopped.';
+            });
+        }
+
+		this.chartUpdated = function () {
+			saveChartState();
+		};
 
 		this.showAll = function (metrics) {
 			if (metrics) {
@@ -109,63 +163,9 @@
 			updateValues();
 		};
 
-		function updateMetrics(InstanceType, currentMetrics, newData, units) {
-			var existing = _(currentMetrics).map('name');
-			/* jshint unused:true */
-			_(newData).each(function (value, name) {
-				if (!_(existing).contains(name)) {
-					var metric = new InstanceType(name, units[name], config.maxValues);
-					currentMetrics.push(metric);
-					_(metric.getCharts()).each(function (c) {
-						charts.push(c);
-						c.registry = self;
-					});
-				}
-			});
-			_(currentMetrics).each(function (g) {
-				g.update(newData[g.name], self.lastUpdate);
-			});
-		}
-
-		function update(data) {
-			self.lastUpdate = moment(data.lastUpdate);
-
-			updateMetrics(metrics.Timer, timers, data.Timers, data.Units.Timers);
-			updateMetrics(metrics.Histogram, histograms, data.Histograms, data.Units.Histograms);
-			updateMetrics(metrics.Meter, meters, data.Meters, data.Units.Meters);
-			updateMetrics(metrics.SimpleMetric, counters, data.Counters, data.Units.Counters);
-			updateMetrics(metrics.SimpleMetric, gauges, data.Gauges, data.Units.Gauges);
-		}
-
 		this.getCharts = function () {
 			return charts;
 		};
-
-		function updateValues() {
-		    var jsonUri = 'json';
-		    if (endpoint) {
-		        if (endpoint[endpoint.length - 1] === '/') {
-		            jsonUri = endpoint + jsonUri;
-		        } else {
-		            jsonUri = endpoint + '/' + jsonUri;
-		        }
-		    }
-
-			$http.get(jsonUri).success(function (data) {
-				self.updateError = null;
-				update(data);
-				if (timer === null) {
-					initialSetup();
-				} else {
-				    $timeout.cancel(timer);
-				}
-				if (config.interval > 0) {
-					timer = $timeout(updateValues, config.interval);
-				}
-			}).error(function () {
-				self.updateError = 'Error reading metric data from ' + (endpoint || '') + '/json. Update stopped.';
-			});
-		}
 
 		updateValues();
 	}

@@ -11,6 +11,12 @@
 			size : 2
 		};
 
+        function save() {
+            localStorageService.add('Metrics.Registry.Config', registryConfig);
+            localStorageService.add('Metrics.Health.Config', healthConfig);
+            localStorageService.add('Metrics.Chart.Config', chartConfig);
+        }
+
 		this.registryConfig = function (config) {
 			if (config) {
 				$.extend(true,registryConfig,config);
@@ -45,12 +51,6 @@
 			localStorageService.remove('Metrics.Health.Config');			
 			localStorageService.remove('Metrics.Chart.Config');			
 		};
-
-		function save() {
-			localStorageService.add('Metrics.Registry.Config', registryConfig);
-			localStorageService.add('Metrics.Health.Config', healthConfig);
-			localStorageService.add('Metrics.Chart.Config', chartConfig);
-		}
 	}
 
 	$.extend(true, this, { metrics: { ConfigService: ConfigService } });
